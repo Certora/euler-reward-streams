@@ -59,8 +59,7 @@ function perRewardAssumptions(address rewarded, address account,
     bool claimableSubExprBoundUpper = claimableSubExpr < max_uint256;
 
     // https://prover.certora.com/output/65266/5719d5fc723c4edeb901476edf0fdcbe/?anonymousKey=88cffe1bf1dc68fd9c46a1fdfb72f0a4b6e698c8
-    // TODO I suspect overflow of old claimable + new claimable
-    //         claimable += uint96(uint256(accumulator - accountEarnStorage.accumulator) * currentAccountBalance / SCALER);
+    // claimable += uint96(uint256(accumulator - accountEarnStorage.accumulator) * currentAccountBalance / SCALER);
     // BaseRewardStreams.sol Line 629
     mathint oldClaimable = getEarnedStorage_claimable(rewarded, account, reward);
     mathint scaler = 20000000000000000000;
