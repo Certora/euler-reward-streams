@@ -76,6 +76,8 @@ function perRewardAssumptions(address rewarded, address account,
 
 }
 
+// Passing.
+// Run link: https://prover.certora.com/output/65266/3a141e6327124fe3b46053cec3b43c0b?anonymousKey=fb807844ed13f892a78c2226a083162cbf3828c7
 rule balanceTrackerHookDoesNotRevert {
     env e;
     address account;
