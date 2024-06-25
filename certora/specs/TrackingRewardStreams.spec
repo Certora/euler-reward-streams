@@ -10,19 +10,30 @@ methods {
     function getCurrentAccountBalance(address rewarded, address account) external returns (uint256) envfree;
 }
 
-function perRewardAssumptions(address rewarded, address account, 
-    uint256 newAccountBalance, address reward) returns bool {
-    // https://prover.certora.com/output/65266/64f9a1d666d44427b295263d9c7c47fa/?anonymousKey=60293ef045d8c104272bea58129bd8f656798ee0
-    // prevent overflow calculateRewards in BaseRewardStreams.sol line 628
-    // Need to make this assumption from comments: 
-    // Downcasting is safe because the `totalRegistered <= type(uint160).max / SCALER < type(uint96).max`.
-    bool totalRegisteredBound = getDistribution_totalRegistered(rewarded, reward) < max_uint96;
-
-    // https://prover.certora.com/output/65266/66a34c860dd343dab0d0737f3a88be17?anonymousKey=dce17147401b71e97c4c52869c3046af25945bc9
-    // uint256(accumulator - accountEarnStorage.accumulator) // prevent this overflow
+function perRewardAssumptions(address rewarded, address account, uint256 newAccountBalance, address reward) returns bool {
+    mathint scaler = 20000000000000000000;
+    uint128 totalRegistered = getDistribution_totalRegistered(rewarded, reward);
     uint208 accumulator = getDistribution_accumulator(rewarded, reward);
+
+    // refined assumption as per https://github.com/euler-xyz/reward-streams/blob/master/src/BaseRewardStreams.sol#L183-L185
+    bool totalRegisteredBound = totalRegistered <= assert_uint128(max_uint160 / scaler);
+
+    // additional assumption for the accumulator, same reasoning as above
+    bool accumulatorBound = accumulator <= assert_uint208(totalRegistered * scaler);
+
+    // accumulator can only grow
     uint160 accountEarnStorageAcc = getEarnedStorage_accumulator(rewarded, account, reward);
-    bool accumulatorBound = accumulator > assert_uint208(accountEarnStorageAcc);
+    bool userAccumulatorBound = accumulator >= assert_uint208(accountEarnStorageAcc);
+
+    // this should be enough not to revert. neither old nor new claimable by a single user can be greater than total registered rewards. this should contain user balance because in practice it cannot be greater than the total eligible balance of all the users
+    uint256 currentAccountBalance = getCurrentAccountBalance(rewarded, account);
+    mathint oldClaimable = getEarnedStorage_claimable(rewarded, account, reward);
+    mathint newClaimable = oldClaimable + (accumulator - accountEarnStorageAcc) * currentAccountBalance / scaler;
+    bool claimableBoundUpper = require_uint128(oldClaimable) <= totalRegistered && require_uint128(newClaimable) <= totalRegistered;
+    // assert_uint128 for newClaimable fails, so we need require_uint128:
+    // https://prover.certora.com/output/65266/1ac07e47fa6343a2bef2b8325457e079?anonymousKey=56fc5fd764c88bdc56ec428259b21ccc0a89d3cc
+    // This does not introduce an extra assumption though because we already
+    // assume it is less than totalRegistered wich is a uint128
 
     // https://prover.certora.com/output/65266/1915458f51704743bb9119d036b499fc?anonymousKey=fa241fa735ffdd3a8d7317464802162378d90c8b
     // TrackingRwardStreams.sol Line 56 overflow in parenthesis here
@@ -30,16 +41,15 @@ function perRewardAssumptions(address rewarded, address account,
     // (distributionStorage.totalEligible + newAccountBalance) - 
     //       currentAccountBalance;
     uint256 oldTotalEligible = getDistribution_totalEligible(rewarded, reward);
-    bool totalEligibleBound = oldTotalEligible + newAccountBalance < max_uint256;
+    bool totalEligibleBound = oldTotalEligible + newAccountBalance <= max_uint256;
 
     // https://prover.certora.com/output/65266/b23921a609cd4936986e07d859d24bb3?anonymousKey=022642c5754cfa07b1fff3a9ce660ff958f356e6
     // TrackingRwardStreams.sol Line 56 overflow in parenthesis here
     // distributionStorage.totalEligible =
     // (distributionStorage.totalEligible + newAccountBalance - 
     //       currentAccountBalance);
-    uint256 currentAccountBalance = getCurrentAccountBalance(rewarded, account);
     bool newTotalEligibleUpperBound = (oldTotalEligible +
-        newAccountBalance - currentAccountBalance) < max_uint256;
+        newAccountBalance - currentAccountBalance) <= max_uint256;
 
     // https://prover.certora.com/output/65266/1915458f51704743bb9119d036b499fc/?anonymousKey=fa241fa735ffdd3a8d7317464802162378d90c8b
     // TrackingRwardStreams.sol Line 56 underflow in parenthesis here
@@ -48,31 +58,15 @@ function perRewardAssumptions(address rewarded, address account,
     //       currentAccountBalance);
     // The require_uint256 is justified by totalEligibleBound
     bool newTotalEligibleLowerBound = require_uint256(oldTotalEligible +
-            newAccountBalance) > currentAccountBalance;
-
-    // https://prover.certora.com/output/65266/6588bf95123c4aa0b36fec7179feec27/?anonymousKey=685792f8e3ecae621945b3c6c11b78c4d10c4b40
-    // BaseRewardStreams.sol Line 629, overflow part in these brackets: [[ ]]
-    // Note: this is a distinct assumption from the comment in the code:
-    // Downcasting is safe because the `totalRegistered <= type(uint160).max / SCALER < type(uint96).max`.
-    //         claimable += uint96(uint256( [[accumulator - accountEarnStorage.accumulator) * currentAccountBalance]] / SCALER);
-    mathint claimableSubExpr= (accumulator - accountEarnStorageAcc) * currentAccountBalance;
-    bool claimableSubExprBoundUpper = claimableSubExpr < max_uint256;
-
-    // https://prover.certora.com/output/65266/5719d5fc723c4edeb901476edf0fdcbe/?anonymousKey=88cffe1bf1dc68fd9c46a1fdfb72f0a4b6e698c8
-    // claimable += uint96(uint256(accumulator - accountEarnStorage.accumulator) * currentAccountBalance / SCALER);
-    // BaseRewardStreams.sol Line 629
-    mathint oldClaimable = getEarnedStorage_claimable(rewarded, account, reward);
-    mathint scaler = 20000000000000000000;
-    bool claimableBoundUpper = oldClaimable + claimableSubExpr / scaler < max_uint96;
+            newAccountBalance) >= currentAccountBalance;
 
     return totalRegisteredBound && 
         accumulatorBound &&
+        userAccumulatorBound &&
+        claimableBoundUpper &&
         totalEligibleBound &&
         newTotalEligibleUpperBound &&
-        newTotalEligibleLowerBound &&
-        claimableSubExprBoundUpper &&
-        claimableBoundUpper;
-
+        newTotalEligibleLowerBound;
 }
 
 // Passing.
