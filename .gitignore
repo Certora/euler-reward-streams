@@ -37,3 +37,10 @@ coverage/
 # Invariant testing files
 crytic-export/
 _corpus/
+
+# Certora
+.certora_internal/
+
+# vim
+.*.swp
+.*.swo
