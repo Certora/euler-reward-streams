@@ -1,10 +1,15 @@
-/* Miscellaneous rules for `StakingRewardStreams` */
-using DummyERC20 as _ERC20;
+/* Multi setup for `StakingRewardStreams` */
+using DummyERC20A as _ERC20;
 
 methods {
+    // Main contract
     function balanceOf(address, address) external returns (uint256) envfree;
     
-    function DummyERC20.balanceOf(address) external returns (uint256) envfree;
+    // Dummies
+    function DummyERC20A.balanceOf(address) external returns (uint256) envfree;
+    function DummyERC20B.balanceOf(address) external returns (uint256) envfree;
+    function DummyERC20C.balanceOf(address) external returns (uint256) envfree;
+    function DummyERC20D.balanceOf(address) external returns (uint256) envfree;
 
     // `ERC20` dispatching
     function _.balanceOf(address) external => DISPATCHER(true);
